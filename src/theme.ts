@@ -1,0 +1,15 @@
+export const colors = {
+  ink: '#1d2b30',
+  muted: '#5d6d74',
+  teal: '#2e8b80',
+  tealDark: '#247a70',
+  line: 'rgba(29, 43, 48, 0.12)',
+  paper: '#f3f7f6',
+  surface: 'rgba(255, 255, 255, 0.72)',
+  danger: '#c44b4b',
+  warn: '#c9852a',
+  bgTop: '#e8eef2',
+  bgMid: '#d5e0e6',
+  bgBottom: '#c9d6cf',
+  white: '#ffffff',
+}

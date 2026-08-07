@@ -21,9 +21,12 @@ import {
 import { imageHtml, pickImage, uploadImageToGitHub } from '../lib/images'
 import {
   buildMaterialCardHtml,
+  clipboardEventToHtml,
   ensureMaterialCardChrome,
   findMaterialCard,
+  isCancelControl,
   MATERIAL_CARD_CSS,
+  removeMaterialCard,
   startMaterialCardResize,
   unwrapMaterialCard,
 } from '../lib/materialCard'
@@ -248,13 +251,81 @@ export function RichTextEditor({
     return () => editor.removeEventListener('input', onNestedInput, true)
   }, [editorKey, emit, refreshOverlay])
 
-  // 原生事件委托：拖拽高度（挂在 wrap 上，避免 contentEditable 干扰）
+  // 粘贴：剥掉材料 card 外壳；题目/选项优先纯文本；避免粘贴进 card 残壳
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    const editor = ref.current
+    if (!editor) return
+
+    const onPaste = (ev: ClipboardEvent) => {
+      const html = clipboardEventToHtml(ev)
+      if (!html) return
+      ev.preventDefault()
+      ev.stopPropagation()
+
+      const active = document.activeElement as HTMLElement | null
+      const pane = active?.closest?.(
+        '.notebox-card-pane-body',
+      ) as HTMLElement | null
+      const inPane = Boolean(pane && editor.contains(pane))
+
+      const sel = window.getSelection()
+      const anchor = sel?.anchorNode
+      const anchorEl =
+        anchor instanceof Element ? anchor : anchor?.parentElement || null
+      const card = findMaterialCard(anchorEl || active)
+
+      if (inPane && pane) {
+        // 用户点进了「材料内容 / 问题」：粘贴进当前栏
+        pane.focus()
+        const s = window.getSelection()
+        if (s && (!s.anchorNode || !pane.contains(s.anchorNode))) {
+          const r = document.createRange()
+          r.selectNodeContents(pane)
+          r.collapse(false)
+          s.removeAllRanges()
+          s.addRange(r)
+        }
+      } else if (card && editor.contains(card)) {
+        // 点在 card 外壳上：贴到 card 后面，当作普通正文
+        const range = document.createRange()
+        range.setStartAfter(card)
+        range.collapse(true)
+        sel?.removeAllRanges()
+        sel?.addRange(range)
+        editor.focus()
+      }
+
+      document.execCommand('insertHTML', false, html)
+      ensureMaterialCardChrome(editor)
+      saveSelection()
+      emit()
+    }
+
+    editor.addEventListener('paste', onPaste, true)
+    return () => editor.removeEventListener('paste', onPaste, true)
+  }, [editorKey, emit])
+
+  // 原生事件委托：取消 card + 拖拽高度（capture，避免 contentEditable 吞掉点击）
   useEffect(() => {
     if (Platform.OS !== 'web') return
     const wrap = wrapRef.current
     const editor = ref.current
     const root = wrap || editor
     if (!root) return
+
+    const handleCancel = (ev: Event) => {
+      const target = ev.target as Element | null
+      if (!target || !isCancelControl(target)) return
+      const card = findMaterialCard(target)
+      if (!card || !root.contains(card)) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      unwrapMaterialCard(card)
+      clearActiveCards()
+      emit()
+      onStatus?.('已取消 card')
+    }
 
     const beginResize = (ev: PointerEvent | MouseEvent, pointerId?: number) => {
       const target = ev.target as HTMLElement | null
@@ -278,19 +349,70 @@ export function RichTextEditor({
     }
 
     const onPointerDown = (ev: PointerEvent) => {
+      if (isCancelControl(ev.target as Element)) {
+        handleCancel(ev)
+        return
+      }
       beginResize(ev, ev.pointerId)
     }
     const onMouseDown = (ev: MouseEvent) => {
+      if (isCancelControl(ev.target as Element)) {
+        handleCancel(ev)
+        return
+      }
       if (typeof window.PointerEvent !== 'undefined') return
       beginResize(ev)
+    }
+    const onClick = (ev: MouseEvent) => {
+      if (isCancelControl(ev.target as Element)) handleCancel(ev)
     }
 
     root.addEventListener('pointerdown', onPointerDown, true)
     root.addEventListener('mousedown', onMouseDown, true)
+    root.addEventListener('click', onClick, true)
     return () => {
       root.removeEventListener('pointerdown', onPointerDown, true)
       root.removeEventListener('mousedown', onMouseDown, true)
+      root.removeEventListener('click', onClick, true)
     }
+  }, [editorKey, emit, onStatus])
+
+  // Delete / Backspace 删除当前选中的材料 card（contenteditable=false 时否则删不掉）
+  useEffect(() => {
+    if (Platform.OS !== 'web') return
+    const editor = ref.current
+    if (!editor) return
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Backspace' && ev.key !== 'Delete') return
+      const active = editor.querySelector(
+        '.notebox-material-card.is-active',
+      ) as HTMLElement | null
+      const anchor = window.getSelection()?.anchorNode
+      const anchorEl =
+        anchor instanceof Element ? anchor : anchor?.parentElement || null
+      const fromSel = findMaterialCard(anchorEl)
+      const card = active || fromSel
+      if (!card || !editor.contains(card)) return
+
+      // 若焦点在 pane 正文内且还有字，交给默认删除
+      const t = ev.target as HTMLElement | null
+      if (t?.closest?.('.notebox-card-pane-body')) {
+        const body = t.closest('.notebox-card-pane-body') as HTMLElement
+        const text = (body.innerText || '').replace(/\u200b/g, '').trim()
+        if (text.length > 0) return
+      }
+
+      ev.preventDefault()
+      ev.stopPropagation()
+      removeMaterialCard(card)
+      clearActiveCards()
+      emit()
+      onStatus?.('已删除材料 card')
+    }
+
+    editor.addEventListener('keydown', onKeyDown, true)
+    return () => editor.removeEventListener('keydown', onKeyDown, true)
   }, [editorKey, emit, onStatus])
 
   const saveSelection = () => {
@@ -560,18 +682,15 @@ export function RichTextEditor({
     const target = e.target as HTMLElement | null
     if (!ref.current || !target) return
 
-    // 取消 card：展平左右内容到原位置
-    if (
-      target.classList.contains('notebox-card-cancel') ||
-      target.getAttribute('data-card-action') === 'cancel'
-    ) {
+    // 取消 card：展平左右内容到原位置（原生 capture 已处理；此处兜底）
+    if (isCancelControl(target)) {
       e.preventDefault?.()
       const card = findMaterialCard(target)
       if (card) {
         unwrapMaterialCard(card)
         clearActiveCards()
         emit()
-        onStatus?.('已取消 card，内容已按顺序填回正文')
+        onStatus?.('已取消 card')
       }
       return
     }
@@ -585,7 +704,11 @@ export function RichTextEditor({
 
     const card = findMaterialCard(target)
     clearActiveCards()
-    if (card) card.classList.add('is-active')
+    if (card) {
+      // 补全被浏览器剥掉的取消按钮等控件
+      ensureMaterialCardChrome(ref.current)
+      card.classList.add('is-active')
+    }
 
     if (target.tagName === 'IMG') {
       const img = target as HTMLImageElement

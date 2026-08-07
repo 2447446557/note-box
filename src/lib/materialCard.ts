@@ -12,11 +12,12 @@ export function findMaterialCard(from: EventTarget | null): HTMLElement | null {
 
 export function buildMaterialCardHtml(): string {
   const id = `mc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  // 注意：不用 <button>，contenteditable 内 button 常被浏览器剥离，导致无法取消/删除
   return `
 <div class="notebox-material-card" ${CARD_ATTR}="${CARD_VALUE}" data-card-id="${id}" contenteditable="false">
   <div class="notebox-material-card-bar" contenteditable="false">
     <span class="notebox-material-card-label">材料对照</span>
-    <button type="button" class="notebox-card-cancel" contenteditable="false" data-card-action="cancel">取消 card</button>
+    <span role="button" tabindex="0" class="notebox-card-cancel" contenteditable="false" data-card-action="cancel">取消 card</span>
   </div>
   <div class="notebox-material-card-split" style="height:220px">
     <div class="notebox-card-pane">
@@ -115,13 +116,68 @@ export function startMaterialCardResize(
 function normalizePaneHtml(html: string): string {
   const trimmed = (html || '').trim()
   if (!trimmed || trimmed === '<br>' || trimmed === '<p><br></p>') return ''
+  const text = trimmed
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .trim()
+  if (!text) return ''
   return trimmed
 }
 
-/** 给旧版 card 补上高度拖拽条 */
+function buildCancelControl(): HTMLElement {
+  const cancel = document.createElement('span')
+  cancel.className = 'notebox-card-cancel'
+  cancel.setAttribute('role', 'button')
+  cancel.setAttribute('tabindex', '0')
+  cancel.setAttribute('contenteditable', 'false')
+  cancel.setAttribute('data-card-action', 'cancel')
+  cancel.textContent = '取消 card'
+  return cancel
+}
+
+function buildResizeHandle(): HTMLElement {
+  const handle = document.createElement('div')
+  handle.className = 'notebox-card-resize'
+  handle.contentEditable = 'false'
+  handle.setAttribute('data-card-action', 'resize')
+  handle.title = '拖动调整高度'
+  const tip = document.createElement('span')
+  tip.className = 'notebox-card-resize-text'
+  tip.textContent = '拖动调整高度'
+  handle.appendChild(tip)
+  return handle
+}
+
+/** 给旧版 / 残缺 card 补上顶栏取消按钮与高度拖拽条 */
 export function ensureMaterialCardChrome(root: HTMLElement): void {
   root.querySelectorAll(`[${CARD_ATTR}="${CARD_VALUE}"]`).forEach((node) => {
     const card = node as HTMLElement
+    card.contentEditable = 'false'
+    card.setAttribute(CARD_ATTR, CARD_VALUE)
+
+    let bar = card.querySelector('.notebox-material-card-bar') as HTMLElement | null
+    if (!bar) {
+      bar = document.createElement('div')
+      bar.className = 'notebox-material-card-bar'
+      bar.contentEditable = 'false'
+      const label = document.createElement('span')
+      label.className = 'notebox-material-card-label'
+      label.textContent = '材料对照'
+      bar.appendChild(label)
+      bar.appendChild(buildCancelControl())
+      card.insertBefore(bar, card.firstChild)
+    } else {
+      // 把历史 <button> 换成 span，并确保取消控件存在
+      const oldBtn = bar.querySelector('button.notebox-card-cancel, [data-card-action="cancel"]')
+      if (oldBtn && oldBtn.tagName === 'BUTTON') {
+        const next = buildCancelControl()
+        oldBtn.replaceWith(next)
+      } else if (!bar.querySelector('[data-card-action="cancel"]')) {
+        bar.appendChild(buildCancelControl())
+      }
+    }
+
     const split = card.querySelector(
       '.notebox-material-card-split',
     ) as HTMLElement | null
@@ -130,21 +186,14 @@ export function ensureMaterialCardChrome(root: HTMLElement): void {
       split.style.height = `${Math.max(MIN_CARD_HEIGHT, h)}px`
     }
     if (!card.querySelector('.notebox-card-resize')) {
-      const handle = document.createElement('div')
-      handle.className = 'notebox-card-resize'
-      handle.contentEditable = 'false'
-      handle.setAttribute('data-card-action', 'resize')
-      handle.title = '拖动调整高度'
-      const tip = document.createElement('span')
-      tip.className = 'notebox-card-resize-text'
-      tip.textContent = '拖动调整高度'
-      handle.appendChild(tip)
-      card.appendChild(handle)
+      card.appendChild(buildResizeHandle())
     }
   })
 }
 
-/** 取消 card：把左右内容依次展开到原位置 */
+/**
+ * 取消 card：把左右内容依次展开到原位置；若两边都空则彻底删除，不留残壳。
+ */
 export function unwrapMaterialCard(card: HTMLElement): void {
   const material =
     card.querySelector('.notebox-card-material-body')?.innerHTML ?? ''
@@ -154,17 +203,148 @@ export function unwrapMaterialCard(card: HTMLElement): void {
   const parts = [normalizePaneHtml(material), normalizePaneHtml(questions)].filter(
     Boolean,
   )
-  const html = parts.length ? parts.join('') : '<p><br></p>'
-
-  const wrap = document.createElement('div')
-  wrap.innerHTML = html
-  const fragment = document.createDocumentFragment()
-  while (wrap.firstChild) fragment.appendChild(wrap.firstChild)
 
   const parent = card.parentNode
   if (!parent) return
+
+  if (parts.length === 0) {
+    const placeholder = document.createElement('p')
+    placeholder.appendChild(document.createElement('br'))
+    parent.insertBefore(placeholder, card)
+    card.remove()
+    return
+  }
+
+  const wrap = document.createElement('div')
+  wrap.innerHTML = parts.join('')
+  const fragment = document.createDocumentFragment()
+  while (wrap.firstChild) fragment.appendChild(wrap.firstChild)
+
   parent.insertBefore(fragment, card)
-  parent.removeChild(card)
+  card.remove()
+}
+
+/** 直接删除整张 card（不展开内容），用于 Backspace/Delete */
+export function removeMaterialCard(card: HTMLElement): void {
+  const parent = card.parentNode
+  if (!parent) return
+  const placeholder = document.createElement('p')
+  placeholder.appendChild(document.createElement('br'))
+  parent.insertBefore(placeholder, card)
+  card.remove()
+}
+
+export function isCancelControl(target: Element | null): boolean {
+  if (!target) return false
+  return Boolean(
+    target.closest?.('[data-card-action="cancel"]') ||
+      target.classList?.contains('notebox-card-cancel'),
+  )
+}
+
+function escapeText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** 纯文本转段落 HTML（粘贴选项/题目时用，避免带入 card 结构） */
+export function plainTextToHtml(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  if (!lines.length) return '<p><br></p>'
+  return lines.map((line) => `<p>${line ? escapeText(line) : '<br>'}</p>`).join('')
+}
+
+/**
+ * 去掉剪贴板里的材料 card 外壳，只保留可读正文与样式。
+ * 防止「复制笔记 / 误带 card HTML」再粘贴时重新出现材料对照框。
+ */
+export function sanitizePastedHtml(html: string): string {
+  if (typeof DOMParser === 'undefined') return html
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+
+  // 保留样式表，否则选项圆标等 class 样式会丢
+  const styleBlocks = Array.from(doc.querySelectorAll('style'))
+    .map((s) => s.outerHTML)
+    .join('')
+
+  doc.querySelectorAll(`[${CARD_ATTR}="${CARD_VALUE}"], .notebox-material-card`).forEach((card) => {
+    const material =
+      card.querySelector('.notebox-card-material-body')?.innerHTML?.trim() || ''
+    const questions =
+      card.querySelector('.notebox-card-questions-body')?.innerHTML?.trim() || ''
+    const parts = [material, questions].filter(
+      (p) => p && p !== '<br>' && p !== '<p><br></p>',
+    )
+    const wrap = doc.createElement('div')
+    wrap.innerHTML = parts.length ? parts.join('') : escapeText(card.textContent || '')
+    const frag = doc.createDocumentFragment()
+    while (wrap.firstChild) frag.appendChild(wrap.firstChild)
+    card.replaceWith(frag)
+  })
+
+  doc
+    .querySelectorAll(
+      '.notebox-card-cancel, .notebox-card-resize, .notebox-material-card-bar, .notebox-card-pane-title, [data-card-action]',
+    )
+    .forEach((el) => el.remove())
+
+  // 拆掉空壳 pane（保留内部带样式的内容）
+  doc.querySelectorAll('.notebox-card-pane, .notebox-material-card-split').forEach((el) => {
+    const wrap = doc.createElement('div')
+    wrap.innerHTML = el.innerHTML
+    const frag = doc.createDocumentFragment()
+    while (wrap.firstChild) frag.appendChild(wrap.firstChild)
+    el.replaceWith(frag)
+  })
+
+  const bodyHtml = (doc.body?.innerHTML || '').trim()
+  if (!bodyHtml) return ''
+  return styleBlocks ? `${styleBlocks}${bodyHtml}` : bodyHtml
+}
+
+/** 题目 + A/B/C/D 这类粘贴：有富文本 HTML 时保留样式，不再强转纯文本 */
+export function shouldPreferPlainTextPaste(text: string, html: string): boolean {
+  if (!text.trim()) return false
+  if (!html.trim()) return true
+  // 仅有极简包装、几乎无样式时才用纯文本
+  const stripped = html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<\/?(html|body|meta|link|head|style|xml)[^>]*>/gi, '')
+    .trim()
+  const textOnly = stripped.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  const plain = text.replace(/\s+/g, ' ').trim()
+  if (textOnly && plain && textOnly === plain && !/style\s*=|class\s*=|<img\b|<table\b|<span\b|<div\b[^>]+style/i.test(html)) {
+    return true
+  }
+  return false
+}
+
+export function clipboardEventToHtml(e: ClipboardEvent): string {
+  const html = e.clipboardData?.getData('text/html')?.trim() || ''
+  const text = e.clipboardData?.getData('text/plain') ?? ''
+
+  if (html) {
+    // 先剥掉材料 card 外壳，但保留选项圆标、颜色等内联样式
+    const cleaned = sanitizePastedHtml(html)
+    if (cleaned && cleaned.replace(/<[^>]+>/g, '').trim()) {
+      // 除非清理后只剩光秃文字且原 HTML 也无样式，否则用 HTML
+      if (!shouldPreferPlainTextPaste(text, cleaned)) {
+        return cleaned
+      }
+    }
+  }
+
+  if (shouldPreferPlainTextPaste(text, html)) {
+    return plainTextToHtml(text)
+  }
+  if (html) {
+    const cleaned = sanitizePastedHtml(html)
+    if (cleaned) return cleaned
+  }
+  return plainTextToHtml(text)
 }
 
 export const MATERIAL_CARD_CSS = `
@@ -208,6 +388,9 @@ export const MATERIAL_CARD_CSS = `
   border-radius: 7px;
   padding: 4px 10px;
   cursor: pointer;
+  display: inline-block;
+  line-height: 1.3;
+  user-select: none;
 }
 .notebox-editor .notebox-card-cancel:hover {
   background: rgba(196, 75, 75, 0.14);

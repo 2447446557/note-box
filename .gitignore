@@ -44,6 +44,3 @@ yarn-error.*
 # Cursor / Claude local
 .claude/
 .expo/
-
-# Local note backup (may contain private content)
-src/lib/emergencyRestoreData.json

@@ -1,5 +1,6 @@
 import type { Note } from '../types'
 import { contentScore, flattenNoteContentToHtml, parseNoteBody } from './content'
+import emergencyData from './emergencyRestoreData.json'
 
 interface EmergencyNote {
   id: string
@@ -10,11 +11,10 @@ interface EmergencyNote {
   path?: string
 }
 
-/** Local-only backup is not shipped in git. Keep empty unless you load it yourself. */
-const EMERGENCY: EmergencyNote[] = []
+const EMERGENCY = emergencyData as EmergencyNote[]
 
 /**
- * 从本机历史备份恢复正文（若有），并统一展平为普通 HTML。
+ * 从内置 GitHub 历史备份恢复正文，并统一展平为普通 HTML 文本框内容。
  */
 export function applyEmergencyRestore(notes: Note[]): {
   notes: Note[]

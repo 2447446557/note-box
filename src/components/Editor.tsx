@@ -78,13 +78,21 @@ export function Editor({
 }
 
 const styles = StyleSheet.create({
-  editor: { flex: 1, backgroundColor: 'rgba(255,255,255,0.35)', minHeight: 0 },
+  editor: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    minHeight: 0,
+    borderTopLeftRadius: 16,
+    overflow: 'hidden',
+  },
   emptyWrap: { flex: 1, padding: 16 },
   emptyCard: {
     marginTop: 48,
     alignSelf: 'center',
     maxWidth: 420,
-    padding: 24,
+    padding: 28,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.7)',
   },
   emptyTitle: {
     fontSize: 24,
@@ -103,10 +111,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
+    backgroundColor: 'rgba(255,255,255,0.82)',
   },
   titleInput: {
     flex: 1,
@@ -116,13 +125,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   ghostBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: 'rgba(46,139,128,0.1)',
   },
   ghostBtnText: {
-    color: colors.ink,
-    fontWeight: '600',
+    color: colors.tealDark,
+    fontWeight: '700',
     fontSize: 13,
   },
 })

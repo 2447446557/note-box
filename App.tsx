@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMid,
   },
   atmosphere: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.bgTop,
   },
   loading: {
@@ -404,5 +404,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     minHeight: 0,
+    paddingTop: 2,
   },
 })

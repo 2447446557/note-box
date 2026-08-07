@@ -4,8 +4,6 @@ import {
   Alert,
   Platform,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native'
 import type { AppSettings } from '../types'
@@ -32,6 +30,7 @@ import {
 } from '../lib/materialCard'
 import { isConfigured } from '../lib/storage'
 import { colors } from '../theme'
+import { NativeRichTextEditor } from './NativeRichTextEditor'
 
 interface Props {
   editorKey: string
@@ -862,18 +861,13 @@ export function RichTextEditor({
 
   if (Platform.OS !== 'web') {
     return (
-      <View style={styles.flex}>
-        <Text style={styles.nativeHint}>完整字体样式与图片缩放请使用电脑 Web 版。</Text>
-        <TextInput
-          style={styles.nativeInput}
-          multiline
-          textAlignVertical="top"
-          value={html.replace(/<[^>]+>/g, '')}
-          onChangeText={(text) => onChange(`<p>${text.replace(/\n/g, '<br/>')}</p>`)}
-          placeholder="开始写笔记…"
-          placeholderTextColor={colors.muted}
-        />
-      </View>
+      <NativeRichTextEditor
+        editorKey={editorKey}
+        html={html}
+        settings={settings}
+        onChange={onChange}
+        onStatus={onStatus}
+      />
     )
   }
 
@@ -1040,17 +1034,4 @@ export function RichTextEditor({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  nativeInput: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.ink,
-  },
-  nativeHint: {
-    padding: 10,
-    fontSize: 12,
-    color: colors.muted,
-  },
 })

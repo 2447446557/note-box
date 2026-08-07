@@ -7,12 +7,24 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "notebox",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "需要访问相册以上传笔记图片"
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.notebox.app"
     },
     "android": {
       "package": "com.notebox.app",
+      "permissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#D5E0E6",
         "foregroundImage": "./assets/android-icon-foreground.png",

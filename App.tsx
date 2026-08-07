@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgMid,
   },
   atmosphere: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: colors.bgTop,
   },
   loading: {

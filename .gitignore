@@ -9,6 +9,11 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Electron
+release/
+*.exe
+*.blockmap
+
 # Native
 .kotlin/
 *.orig.*

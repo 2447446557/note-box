@@ -22,10 +22,14 @@ import {
   clipboardEventToHtml,
   ensureMaterialCardChrome,
   findMaterialCard,
+  fixMaterialCardLayout,
+  insertHtmlIntoEditable,
   isCancelControl,
   MATERIAL_CARD_CSS,
   removeMaterialCard,
+  resolvePastePane,
   startMaterialCardResize,
+  stripTransientCardStyles,
   unwrapMaterialCard,
 } from '../lib/materialCard'
 import { isConfigured } from '../lib/storage'
@@ -81,12 +85,15 @@ export function RichTextEditor({
 
   const emit = useCallback(() => {
     if (!ref.current) return
+    stripTransientCardStyles(ref.current)
     const html = stripImageSelection(ref.current.innerHTML || '').replace(
       /\s*is-active/g,
       '',
     )
     onChange(html)
   }, [onChange])
+
+  const lastPaneRef = useRef<HTMLElement | null>(null)
 
   const refreshOverlay = useCallback(() => {
     if (!ref.current || !selectedImg.current) {
@@ -250,11 +257,17 @@ export function RichTextEditor({
     return () => editor.removeEventListener('input', onNestedInput, true)
   }, [editorKey, emit, refreshOverlay])
 
-  // 粘贴：剥掉材料 card 外壳；题目/选项优先纯文本；避免粘贴进 card 残壳
+  // 粘贴：必须进当前材料/问题栏，禁止因嵌套 contenteditable 焦点漂移贴到 card 外
   useEffect(() => {
     if (Platform.OS !== 'web') return
     const editor = ref.current
     if (!editor) return
+
+    const onFocusIn = (ev: FocusEvent) => {
+      const t = ev.target as HTMLElement | null
+      const pane = t?.closest?.('.notebox-card-pane-body') as HTMLElement | null
+      if (pane && editor.contains(pane)) lastPaneRef.current = pane
+    }
 
     const onPaste = (ev: ClipboardEvent) => {
       const html = clipboardEventToHtml(ev)
@@ -262,37 +275,17 @@ export function RichTextEditor({
       ev.preventDefault()
       ev.stopPropagation()
 
-      const active = document.activeElement as HTMLElement | null
-      const pane = active?.closest?.(
-        '.notebox-card-pane-body',
-      ) as HTMLElement | null
-      const inPane = Boolean(pane && editor.contains(pane))
-
-      const sel = window.getSelection()
-      const anchor = sel?.anchorNode
-      const anchorEl =
-        anchor instanceof Element ? anchor : anchor?.parentElement || null
-      const card = findMaterialCard(anchorEl || active)
-
-      if (inPane && pane) {
-        // 用户点进了「材料内容 / 问题」：粘贴进当前栏
-        pane.focus()
-        const s = window.getSelection()
-        if (s && (!s.anchorNode || !pane.contains(s.anchorNode))) {
-          const r = document.createRange()
-          r.selectNodeContents(pane)
-          r.collapse(false)
-          s.removeAllRanges()
-          s.addRange(r)
-        }
-      } else if (card && editor.contains(card)) {
-        // 点在 card 外壳上：贴到 card 后面，当作普通正文
-        const range = document.createRange()
-        range.setStartAfter(card)
-        range.collapse(true)
-        sel?.removeAllRanges()
-        sel?.addRange(range)
-        editor.focus()
+      const pane = resolvePastePane(editor, lastPaneRef.current)
+      if (pane) {
+        lastPaneRef.current = pane
+        insertHtmlIntoEditable(pane, html)
+        ensureMaterialCardChrome(editor)
+        const card = findMaterialCard(pane)
+        fixMaterialCardLayout(card)
+        requestAnimationFrame(() => fixMaterialCardLayout(card))
+        saveSelection()
+        emit()
+        return
       }
 
       document.execCommand('insertHTML', false, html)
@@ -301,8 +294,12 @@ export function RichTextEditor({
       emit()
     }
 
+    editor.addEventListener('focusin', onFocusIn, true)
     editor.addEventListener('paste', onPaste, true)
-    return () => editor.removeEventListener('paste', onPaste, true)
+    return () => {
+      editor.removeEventListener('focusin', onFocusIn, true)
+      editor.removeEventListener('paste', onPaste, true)
+    }
   }, [editorKey, emit])
 
   // 原生事件委托：取消 card + 拖拽高度（capture，避免 contentEditable 吞掉点击）
@@ -654,7 +651,17 @@ export function RichTextEditor({
     const wrap = document.createElement('div')
     wrap.innerHTML = buildMaterialCardHtml()
     const frag = document.createDocumentFragment()
-    while (wrap.firstChild) frag.appendChild(wrap.firstChild)
+    let insertedCard: HTMLElement | null = null
+    while (wrap.firstChild) {
+      if (
+        !insertedCard &&
+        wrap.firstChild instanceof HTMLElement &&
+        wrap.firstChild.classList.contains('notebox-material-card')
+      ) {
+        insertedCard = wrap.firstChild
+      }
+      frag.appendChild(wrap.firstChild)
+    }
 
     const sel = window.getSelection()
     if (sel && sel.rangeCount > 0 && ref.current.contains(sel.anchorNode)) {
@@ -669,9 +676,22 @@ export function RichTextEditor({
     }
 
     ensureMaterialCardChrome(ref.current)
+    const materialBody = insertedCard?.querySelector(
+      '.notebox-card-material-body',
+    ) as HTMLElement | null
+    if (materialBody) {
+      lastPaneRef.current = materialBody
+      materialBody.focus()
+      const r = document.createRange()
+      r.selectNodeContents(materialBody)
+      r.collapse(true)
+      const s = window.getSelection()
+      s?.removeAllRanges()
+      s?.addRange(r)
+    }
     saveSelection()
     emit()
-    onStatus?.('已插入材料 card，可拖底部青条调整高度')
+    onStatus?.('已插入材料 card，可直接粘贴到「材料内容」')
   }
 
   const onEditorClick = (e: {
@@ -707,6 +727,25 @@ export function RichTextEditor({
       // 补全被浏览器剥掉的取消按钮等控件
       ensureMaterialCardChrome(ref.current)
       card.classList.add('is-active')
+
+      // 点标题栏/分栏空白时，把焦点送进对应 pane，避免后续粘贴落到 card 外
+      const paneWrap = target.closest('.notebox-card-pane') as HTMLElement | null
+      const paneBody = (paneWrap?.querySelector('.notebox-card-pane-body') ||
+        target.closest('.notebox-card-pane-body') ||
+        card.querySelector('.notebox-card-material-body')) as HTMLElement | null
+      if (paneBody && !target.closest('.notebox-card-pane-body')) {
+        e.preventDefault?.()
+        lastPaneRef.current = paneBody
+        paneBody.focus()
+        const r = document.createRange()
+        r.selectNodeContents(paneBody)
+        r.collapse(false)
+        const s = window.getSelection()
+        s?.removeAllRanges()
+        s?.addRange(r)
+      } else if (paneBody) {
+        lastPaneRef.current = paneBody
+      }
     }
 
     if (target.tagName === 'IMG') {

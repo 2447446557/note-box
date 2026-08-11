@@ -1,0 +1,38 @@
+{
+  "appId": "com.notebox.desktop",
+  "productName": "Note-box",
+  "copyright": "Copyright \u00a9 Note-box",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "electron/**/*",
+    "dist/**/*",
+    "package.json",
+    "assets/icon.png"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.cjs"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon.png",
+    "signAndEditExecutable": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Note-box",
+    "artifactName": "Note-box-Setup-${version}.${ext}"
+  }
+}

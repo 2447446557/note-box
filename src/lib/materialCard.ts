@@ -188,7 +188,145 @@ export function ensureMaterialCardChrome(root: HTMLElement): void {
     if (!card.querySelector('.notebox-card-resize')) {
       card.appendChild(buildResizeHandle())
     }
+    fixMaterialCardLayout(card)
   })
+}
+
+/**
+ * 粘贴进 contenteditable 后，Chrome 偶发不把 pane 建成滚动容器；
+ * 只做重排，不把临时 overflow 写进内联 style（否则会进笔记 HTML 引发同步差异）。
+ */
+export function fixMaterialCardLayout(card: HTMLElement | null): void {
+  if (!card) return
+  const split = card.querySelector(
+    '.notebox-material-card-split',
+  ) as HTMLElement | null
+  if (!split) return
+
+  const h =
+    parseFloat(split.style.height) ||
+    Math.round(split.getBoundingClientRect().height) ||
+    220
+  const px = `${Math.max(MIN_CARD_HEIGHT, Math.min(MAX_CARD_HEIGHT, h))}px`
+  split.style.height = px
+  // 用户拖高时也会写 min/max；保持一致即可
+  if (!split.style.minHeight) split.style.minHeight = px
+  if (!split.style.maxHeight) split.style.maxHeight = px
+
+  card.querySelectorAll('.notebox-card-pane-body').forEach((node) => {
+    const pane = node as HTMLElement
+    pane.querySelectorAll<HTMLElement>('[style]').forEach((el) => {
+      if (el === pane) return
+      if (el.style.position === 'absolute' || el.style.position === 'fixed') {
+        el.style.position = 'static'
+      }
+      if (el.style.float && el.style.float !== 'none') {
+        el.style.float = 'none'
+      }
+    })
+    // 强制重排，不留下可被序列化的临时 style
+    pane.classList.add('notebox-pane-reflow')
+    void pane.offsetHeight
+    pane.classList.remove('notebox-pane-reflow')
+  })
+}
+
+/** 保存前去掉临时布局样式，避免写入笔记导致无谓冲突 */
+export function stripTransientCardStyles(root: HTMLElement): void {
+  root.querySelectorAll('.notebox-card-pane-body').forEach((node) => {
+    const el = node as HTMLElement
+    el.style.removeProperty('overflow')
+    el.style.removeProperty('max-height')
+    el.classList.remove('notebox-pane-reflow')
+  })
+  root.querySelectorAll('.notebox-material-card-split').forEach((node) => {
+    const el = node as HTMLElement
+    el.style.removeProperty('overflow')
+  })
+}
+
+/**
+ * 解析粘贴目标栏：优先选区 / 焦点所在 pane；
+ * 若点在 card 标题栏等外壳上，落到对应栏或默认「材料内容」。
+ * 切勿在「点到 card 但未进 pane」时把内容贴到 card 外面。
+ */
+export function resolvePastePane(
+  editor: HTMLElement,
+  lastPane: HTMLElement | null,
+): HTMLElement | null {
+  const sel = window.getSelection()
+  const anchor = sel?.anchorNode
+  const anchorEl =
+    anchor instanceof Element ? anchor : anchor?.parentElement || null
+  const active = document.activeElement as HTMLElement | null
+
+  const fromSel = anchorEl?.closest?.(
+    '.notebox-card-pane-body',
+  ) as HTMLElement | null
+  if (fromSel && editor.contains(fromSel)) return fromSel
+
+  const fromActive = active?.closest?.(
+    '.notebox-card-pane-body',
+  ) as HTMLElement | null
+  if (fromActive && editor.contains(fromActive)) return fromActive
+
+  const card = findMaterialCard(anchorEl || active)
+  if (card && editor.contains(card)) {
+    if (lastPane && card.contains(lastPane) && editor.contains(lastPane)) {
+      return lastPane
+    }
+    const paneWrap = (anchorEl || active)?.closest?.(
+      '.notebox-card-pane',
+    ) as HTMLElement | null
+    if (paneWrap && card.contains(paneWrap)) {
+      const body = paneWrap.querySelector(
+        '.notebox-card-pane-body',
+      ) as HTMLElement | null
+      if (body) return body
+    }
+    return (
+      (card.querySelector(
+        '.notebox-card-material-body',
+      ) as HTMLElement | null) || null
+    )
+  }
+
+  return null
+}
+
+/** 把 HTML 插入指定可编辑节点（保证不落到外层编辑器） */
+export function insertHtmlIntoEditable(
+  host: HTMLElement,
+  html: string,
+): void {
+  host.focus()
+  const sel = window.getSelection()
+  const inside =
+    Boolean(sel && sel.rangeCount > 0 && host.contains(sel.anchorNode))
+
+  if (!inside) {
+    const r = document.createRange()
+    r.selectNodeContents(host)
+    r.collapse(false)
+    sel?.removeAllRanges()
+    sel?.addRange(r)
+  }
+
+  const stillOutside =
+    !sel || sel.rangeCount === 0 || !host.contains(sel.anchorNode)
+
+  if (stillOutside) {
+    const onlyEmpty =
+      (host.textContent || '').replace(/\u200b/g, '').trim() === ''
+    const wrap = document.createElement('div')
+    wrap.innerHTML = html
+    if (onlyEmpty) host.innerHTML = ''
+    while (wrap.firstChild) host.appendChild(wrap.firstChild)
+    if (!host.innerHTML.trim()) host.innerHTML = '<p><br></p>'
+    return
+  }
+
+  document.execCommand('insertHTML', false, html)
 }
 
 /**
@@ -354,7 +492,7 @@ export const MATERIAL_CARD_CSS = `
   border: 1px solid rgba(29, 43, 48, 0.14);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.92);
-  overflow: visible;
+  overflow: hidden;
   box-shadow: 0 1px 0 rgba(29, 43, 48, 0.04);
   position: relative;
 }
@@ -426,10 +564,25 @@ export const MATERIAL_CARD_CSS = `
 .notebox-editor .notebox-card-pane-body {
   flex: 1;
   min-height: 0;
+  height: 0;
   padding: 4px 12px 12px;
   outline: none;
   cursor: text;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.notebox-editor .notebox-card-pane-body.notebox-pane-reflow {
+  overflow: hidden !important;
+}
+.notebox-editor .notebox-card-pane-body > * {
+  max-width: 100%;
+}
+.notebox-editor .notebox-card-pane-body img {
+  max-width: 100%;
+  height: auto;
 }
 .notebox-editor .notebox-card-pane-body:focus {
   background: rgba(46, 139, 128, 0.04);

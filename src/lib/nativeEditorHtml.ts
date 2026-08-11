@@ -153,6 +153,7 @@ export function buildNativeEditorHtml(initialHtml: string): string {
 
   function emit() {
     if (suppressEmit) return;
+    stripTransientCardStyles(editor);
     post({ type: 'change', html: stripSelection(editor.innerHTML || '') });
   }
 
@@ -291,7 +292,92 @@ export function buildNativeEditorHtml(initialHtml: string): string {
       if (!card.querySelector('.notebox-card-resize')) {
         card.appendChild(buildResizeHandle());
       }
+      fixMaterialCardLayout(card);
     });
+  }
+
+  var lastPane = null;
+
+  function fixMaterialCardLayout(card) {
+    if (!card) return;
+    var split = card.querySelector('.notebox-material-card-split');
+    if (!split) return;
+    var h = parseFloat(split.style.height) || Math.round(split.getBoundingClientRect().height) || 220;
+    var px = Math.max(120, Math.min(900, h)) + 'px';
+    split.style.height = px;
+    if (!split.style.minHeight) split.style.minHeight = px;
+    if (!split.style.maxHeight) split.style.maxHeight = px;
+    card.querySelectorAll('.notebox-card-pane-body').forEach(function (node) {
+      var pane = node;
+      pane.querySelectorAll('[style]').forEach(function (el) {
+        if (el === pane) return;
+        if (el.style.position === 'absolute' || el.style.position === 'fixed') {
+          el.style.position = 'static';
+        }
+        if (el.style.float && el.style.float !== 'none') {
+          el.style.float = 'none';
+        }
+      });
+      pane.classList.add('notebox-pane-reflow');
+      void pane.offsetHeight;
+      pane.classList.remove('notebox-pane-reflow');
+    });
+  }
+
+  function stripTransientCardStyles(root) {
+    root.querySelectorAll('.notebox-card-pane-body').forEach(function (node) {
+      node.style.removeProperty('overflow');
+      node.style.removeProperty('max-height');
+      node.classList.remove('notebox-pane-reflow');
+    });
+    root.querySelectorAll('.notebox-material-card-split').forEach(function (node) {
+      node.style.removeProperty('overflow');
+    });
+  }
+
+  function resolvePastePane(editorEl) {
+    var sel = window.getSelection();
+    var anchor = sel && sel.anchorNode;
+    var anchorEl = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    var active = document.activeElement;
+    var fromSel = anchorEl && anchorEl.closest && anchorEl.closest('.notebox-card-pane-body');
+    if (fromSel && editorEl.contains(fromSel)) return fromSel;
+    var fromActive = active && active.closest && active.closest('.notebox-card-pane-body');
+    if (fromActive && editorEl.contains(fromActive)) return fromActive;
+    var card = findMaterialCard(anchorEl || active);
+    if (card && editorEl.contains(card)) {
+      if (lastPane && card.contains(lastPane) && editorEl.contains(lastPane)) return lastPane;
+      var paneWrap = (anchorEl || active) && (anchorEl || active).closest && (anchorEl || active).closest('.notebox-card-pane');
+      if (paneWrap && card.contains(paneWrap)) {
+        var body = paneWrap.querySelector('.notebox-card-pane-body');
+        if (body) return body;
+      }
+      return card.querySelector('.notebox-card-material-body');
+    }
+    return null;
+  }
+
+  function insertHtmlIntoEditable(host, html) {
+    host.focus();
+    var sel = window.getSelection();
+    var inside = sel && sel.rangeCount > 0 && host.contains(sel.anchorNode);
+    if (!inside) {
+      var r = document.createRange();
+      r.selectNodeContents(host);
+      r.collapse(false);
+      if (sel) { sel.removeAllRanges(); sel.addRange(r); }
+    }
+    var stillOutside = !sel || sel.rangeCount === 0 || !host.contains(sel.anchorNode);
+    if (stillOutside) {
+      var onlyEmpty = (host.textContent || '').replace(/\\u200b/g, '').trim() === '';
+      var wrap = document.createElement('div');
+      wrap.innerHTML = html;
+      if (onlyEmpty) host.innerHTML = '';
+      while (wrap.firstChild) host.appendChild(wrap.firstChild);
+      if (!host.innerHTML.trim()) host.innerHTML = '<p><br></p>';
+      return;
+    }
+    document.execCommand('insertHTML', false, html);
   }
 
   function normalizePaneHtml(html) {
@@ -569,7 +655,13 @@ export function buildNativeEditorHtml(initialHtml: string): string {
     var wrap = document.createElement('div');
     wrap.innerHTML = buildMaterialCardHtml();
     var frag = document.createDocumentFragment();
-    while (wrap.firstChild) frag.appendChild(wrap.firstChild);
+    var insertedCard = null;
+    while (wrap.firstChild) {
+      if (!insertedCard && wrap.firstChild.classList && wrap.firstChild.classList.contains('notebox-material-card')) {
+        insertedCard = wrap.firstChild;
+      }
+      frag.appendChild(wrap.firstChild);
+    }
     var sel = window.getSelection();
     if (sel && sel.rangeCount > 0 && editor.contains(sel.anchorNode)) {
       var range = sel.getRangeAt(0);
@@ -582,9 +674,19 @@ export function buildNativeEditorHtml(initialHtml: string): string {
       editor.appendChild(frag);
     }
     ensureMaterialCardChrome(editor);
+    var materialBody = insertedCard && insertedCard.querySelector('.notebox-card-material-body');
+    if (materialBody) {
+      lastPane = materialBody;
+      materialBody.focus();
+      var r = document.createRange();
+      r.selectNodeContents(materialBody);
+      r.collapse(true);
+      var s = window.getSelection();
+      if (s) { s.removeAllRanges(); s.addRange(r); }
+    }
     saveSelection();
     emit();
-    status('已插入材料 card，可拖底部青条调整高度');
+    status('已插入材料 card，可直接粘贴到「材料内容」');
   }
 
   // Toolbar
@@ -646,37 +748,28 @@ export function buildNativeEditorHtml(initialHtml: string): string {
   });
   editor.addEventListener('blur', saveSelection);
 
+  editor.addEventListener('focusin', function (ev) {
+    var t = ev.target;
+    var pane = t && t.closest && t.closest('.notebox-card-pane-body');
+    if (pane && editor.contains(pane)) lastPane = pane;
+  }, true);
+
   editor.addEventListener('paste', function (ev) {
     var html = clipboardEventToHtml(ev);
     if (!html) return;
     ev.preventDefault();
     ev.stopPropagation();
-    var active = document.activeElement;
-    var pane = active && active.closest ? active.closest('.notebox-card-pane-body') : null;
-    var inPane = !!(pane && editor.contains(pane));
-    var sel = window.getSelection();
-    var anchor = sel && sel.anchorNode;
-    var anchorEl = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
-    var card = findMaterialCard(anchorEl || active);
-    if (inPane && pane) {
-      pane.focus();
-      var s = window.getSelection();
-      if (s && (!s.anchorNode || !pane.contains(s.anchorNode))) {
-        var r = document.createRange();
-        r.selectNodeContents(pane);
-        r.collapse(false);
-        s.removeAllRanges();
-        s.addRange(r);
-      }
-    } else if (card && editor.contains(card)) {
-      var range = document.createRange();
-      range.setStartAfter(card);
-      range.collapse(true);
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-      editor.focus();
+    var pane = resolvePastePane(editor);
+    if (pane) {
+      lastPane = pane;
+      insertHtmlIntoEditable(pane, html);
+      ensureMaterialCardChrome(editor);
+      var card = findMaterialCard(pane);
+      fixMaterialCardLayout(card);
+      requestAnimationFrame(function () { fixMaterialCardLayout(card); });
+      saveSelection();
+      emit();
+      return;
     }
     document.execCommand('insertHTML', false, html);
     ensureMaterialCardChrome(editor);
@@ -714,7 +807,25 @@ export function buildNativeEditorHtml(initialHtml: string): string {
     if (target.classList && (target.classList.contains('notebox-card-resize') || target.closest('.notebox-card-resize'))) return;
     var card = findMaterialCard(target);
     clearActiveCards();
-    if (card && editor.contains(card)) card.classList.add('is-active');
+    if (card && editor.contains(card)) {
+      card.classList.add('is-active');
+      var paneWrap = target.closest && target.closest('.notebox-card-pane');
+      var paneBody = (paneWrap && paneWrap.querySelector('.notebox-card-pane-body'))
+        || (target.closest && target.closest('.notebox-card-pane-body'))
+        || card.querySelector('.notebox-card-material-body');
+      if (paneBody && !(target.closest && target.closest('.notebox-card-pane-body'))) {
+        ev.preventDefault();
+        lastPane = paneBody;
+        paneBody.focus();
+        var r = document.createRange();
+        r.selectNodeContents(paneBody);
+        r.collapse(false);
+        var s = window.getSelection();
+        if (s) { s.removeAllRanges(); s.addRange(r); }
+      } else if (paneBody) {
+        lastPane = paneBody;
+      }
+    }
     if (target.tagName === 'IMG') {
       editor.querySelectorAll('img.notebox-img-selected').forEach(function (img) {
         img.classList.remove('notebox-img-selected');

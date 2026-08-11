@@ -320,19 +320,22 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <View style={styles.atmosphere} />
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
         <SyncStatusBar
           status={status}
           message={statusMessage}
-          onSync={() => void syncRef.current?.pushNow(selected?.dirty ? selected.id : undefined)}
+          onPull={() => void syncRef.current?.pull()}
+          onSync={() => void syncRef.current?.syncNow()}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <View style={styles.main}>
           <NoteList
             notes={notes}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={(id) => {
+              setSelectedId(id)
+              setListOpen(false)
+            }}
             onCreate={handleCreate}
             onCreateChild={handleCreateChild}
             onDelete={handleDeleteRequest}
@@ -388,22 +391,17 @@ export default function App() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: colors.bgMid,
-  },
-  atmosphere: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.bgTop,
+    backgroundColor: colors.paper,
   },
   loading: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.bgMid,
+    backgroundColor: colors.paper,
   },
   main: {
     flex: 1,
     flexDirection: 'row',
     minHeight: 0,
-    paddingTop: 2,
   },
 })

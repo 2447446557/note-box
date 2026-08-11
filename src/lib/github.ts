@@ -18,7 +18,15 @@ export class GitHubError extends Error {
 }
 
 export function createOctokit(token: string): Octokit {
-  return new Octokit({ auth: token })
+  const auth = token.trim()
+  return new Octokit({
+    auth,
+    userAgent: 'Note-box-Expo/1.0',
+    request: {
+      // 显式绑定 RN/Hermes 的 fetch，避免部分 Android 环境拿不到全局 fetch
+      fetch: ((...args: Parameters<typeof fetch>) => fetch(...args)) as typeof fetch,
+    },
+  })
 }
 
 function decodeContent(content: string, encoding?: string): string {
@@ -62,12 +70,22 @@ export async function listNoteFiles(
   const octokit = createOctokit(settings.token)
   const path = settings.notesPath.replace(/^\/+|\/+$/g, '')
 
+  // 先确认仓库本身可访问，避免把「鉴权失败 / 仓库不存在」误当成空目录
+  try {
+    await octokit.repos.get({
+      owner: settings.owner.trim(),
+      repo: settings.repo.trim(),
+    })
+  } catch (error) {
+    throw wrapError(error)
+  }
+
   try {
     const { data } = await octokit.repos.getContent({
-      owner: settings.owner,
-      repo: settings.repo,
+      owner: settings.owner.trim(),
+      repo: settings.repo.trim(),
       path,
-      ref: settings.branch,
+      ref: settings.branch.trim(),
     })
 
     if (!Array.isArray(data)) {
@@ -79,7 +97,48 @@ export async function listNoteFiles(
       .map((item) => ({ name: item.name, path: item.path, sha: item.sha }))
   } catch (error) {
     const status = (error as { status?: number }).status
+    // 目录尚不存在：当作空列表（首次推送会创建）
     if (status === 404) return []
+    throw wrapError(error)
+  }
+}
+
+/** 设置页「测试连接」：验证 Token / 仓库 / 笔记目录 */
+export async function testGitHubConnection(
+  settings: AppSettings,
+): Promise<string> {
+  const octokit = createOctokit(settings.token)
+  const owner = settings.owner.trim()
+  const repo = settings.repo.trim()
+  const branch = settings.branch.trim() || 'main'
+  const path = settings.notesPath.replace(/^\/+|\/+$/g, '') || 'notes'
+
+  try {
+    await octokit.repos.get({ owner, repo })
+  } catch (error) {
+    throw wrapError(error)
+  }
+
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner,
+      repo,
+      path,
+      ref: branch,
+    })
+    if (!Array.isArray(data)) {
+      throw new GitHubError(`「${path}」不是文件夹，请检查笔记目录`)
+    }
+    const count = data.filter(
+      (item) => item.type === 'file' && item.name.toLowerCase().endsWith('.md'),
+    ).length
+    return `连接成功：${owner}/${repo}@${branch}，目录 ${path} 下有 ${count} 篇笔记`
+  } catch (error) {
+    if (error instanceof GitHubError) throw error
+    const status = (error as { status?: number }).status
+    if (status === 404) {
+      return `仓库可访问，但目录「${path}」尚不存在（首次推送会自动创建）`
+    }
     throw wrapError(error)
   }
 }
@@ -113,23 +172,39 @@ export async function getNoteFile(
 export async function pullAllNotes(settings: AppSettings): Promise<Note[]> {
   const files = await listNoteFiles(settings)
   const notes: Note[] = []
+  const failures: string[] = []
 
   for (const file of files) {
-    const { content, sha } = await getNoteFile(settings, file.path)
-    const fallback = titleFromFilename(file.name)
-    const meta = extractMetaFromContent(content)
-    const stored = flattenNoteContentToHtml(meta.body || content)
-    notes.push({
-      id: file.name,
-      path: file.path,
-      title: extractTitleFromContent(content, fallback),
-      content: stored,
-      sha,
-      updatedAt: Date.now(),
-      dirty: false,
-      parentId: meta.parentId ?? null,
-      sortOrder: meta.sortOrder,
-    })
+    try {
+      const { content, sha } = await getNoteFile(settings, file.path)
+      const fallback = titleFromFilename(file.name)
+      const meta = extractMetaFromContent(content)
+      const stored = flattenNoteContentToHtml(meta.body || content)
+      notes.push({
+        id: file.name,
+        path: file.path,
+        title: extractTitleFromContent(content, fallback),
+        content: stored,
+        sha,
+        updatedAt: Date.now(),
+        dirty: false,
+        parentId: meta.parentId ?? null,
+        sortOrder: meta.sortOrder,
+      })
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      failures.push(`${file.name}: ${msg}`)
+    }
+  }
+
+  if (files.length > 0 && notes.length === 0) {
+    throw new GitHubError(
+      `拉取失败：${failures[0] || '无法读取任何笔记文件'}`,
+    )
+  }
+
+  if (failures.length > 0) {
+    console.warn('[Note-box] partial pull failures', failures)
   }
 
   return notes.sort((a, b) => b.updatedAt - a.updatedAt)

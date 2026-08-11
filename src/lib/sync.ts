@@ -211,10 +211,16 @@ export class SyncController {
 
       const pending = pendingCount(this.notes)
       if (pending > 0) {
-        this.callbacks.onStatus('pending', `已拉取并写入本地，${pending} 篇本地修改待推送`)
+        this.callbacks.onStatus(
+          'pending',
+          `已拉取 ${remoteNotes.length} 篇，${pending} 篇本地修改待推送`,
+        )
         void this.flushPending()
       } else {
-        this.callbacks.onStatus('synced', '已拉取并同步到本地')
+        this.callbacks.onStatus(
+          'synced',
+          `已拉取 ${remoteNotes.length} 篇并同步到本地`,
+        )
       }
       return this.notes
     } catch (error) {
@@ -223,10 +229,15 @@ export class SyncController {
       const message = error instanceof Error ? error.message : '拉取失败'
       const pending = pendingCount(this.notes)
       const suffix = pending ? `，${pending} 篇待推送` : ''
-      if (isLikelyNetworkError(error)) {
-        this.callbacks.onStatus('pending', `网络不可用，已使用本地笔记${suffix}`)
+      const statusCode =
+        error instanceof GitHubError && error.status ? ` [${error.status}]` : ''
+      if (isLikelyNetworkError(error) && !(error instanceof GitHubError && error.status)) {
+        this.callbacks.onStatus('error', `网络不可用，已使用本地笔记${suffix}`)
       } else {
-        this.callbacks.onStatus('pending', `拉取失败（${message}），已使用本地笔记${suffix}`)
+        this.callbacks.onStatus(
+          'error',
+          `拉取失败${statusCode}：${message}${suffix}`,
+        )
       }
       return this.notes
     }
@@ -257,6 +268,17 @@ export class SyncController {
       }
       await this.pushOne(note.id)
     }
+  }
+
+  /** 手机端「同步」：先拉取远程，再推送本地待推送项（避免只推不拉） */
+  async syncNow() {
+    await this.persistLocal()
+    if (!isConfigured(this.settings)) {
+      this.callbacks.onStatus('unconfigured', '请先在设置中配置 GitHub')
+      return
+    }
+    await this.pull()
+    await this.flushPending()
   }
 
   async flushPending() {

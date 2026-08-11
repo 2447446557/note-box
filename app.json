@@ -22,8 +22,11 @@
     "android": {
       "package": "com.notebox.app",
       "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#D5E0E6",
@@ -35,6 +38,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "40cea216-9ba0-4414-bc0b-604efb62ff39"
+      }
+    },
+    "owner": "2447446557"
   }
 }

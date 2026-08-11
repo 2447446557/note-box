@@ -23,6 +23,7 @@
     "@types/base-64": "^1.0.2",
     "@types/react": "~19.2.2",
     "@types/react-dom": "^19.2.4",
+    "eas-cli": "^16.32.0",
     "electron": "^37.2.6",
     "electron-builder": "^26.0.12",
     "typescript": "~6.0.3"
@@ -35,8 +36,8 @@
     "export:web": "expo export -p web",
     "electron:dev": "node scripts/electron-pack.cjs dev",
     "electron:build": "node scripts/electron-pack.cjs build",
-    "build:apk": "eas build -p android --profile preview",
-    "build:aab": "eas build -p android --profile production"
+    "build:apk": "npx eas-cli build -p android --profile preview",
+    "build:aab": "npx eas-cli build -p android --profile production"
   },
   "private": true
 }

@@ -60,7 +60,7 @@ const styles = StyleSheet.create({
   },
   card: {
     maxHeight: '90%',
-    backgroundColor: colors.paper,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 16,
   },

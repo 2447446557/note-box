@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native'
 import type { Note } from '../types'
-import { colors } from '../theme'
+import { colors, radius, space } from '../theme'
 
 interface Props {
   notes: Note[]
@@ -146,19 +146,32 @@ function ListBody({
     <View style={styles.sidebar}>
       <View style={styles.brandRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.brand}>Note-box</Text>
-          <Text style={styles.brandSub}>错题本 · 可嵌套选项卡</Text>
+          <Text style={styles.brand}>笔记</Text>
+          <Text style={styles.brandSub}>本地优先 · GitHub 同步</Text>
         </View>
         {onToggleCollapse ? (
           <Pressable
-            style={styles.collapseBtn}
+            style={({ pressed }) => [styles.collapseBtn, pressed && styles.pressed]}
             onPress={onToggleCollapse}
             accessibilityLabel="收缩侧边栏"
           >
             <Text style={styles.collapseBtnText}>⟨</Text>
           </Pressable>
-        ) : null}
-        <Pressable style={styles.primaryBtn} onPress={onCreate}>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.closeMobileBtn, pressed && styles.pressed]}
+            onPress={onCloseMobile}
+          >
+            <Text style={styles.closeMobileText}>关闭</Text>
+          </Pressable>
+        )}
+        <Pressable
+          style={({ pressed }) => [
+            styles.primaryBtn,
+            pressed && styles.primaryBtnPressed,
+          ]}
+          onPress={onCreate}
+        >
           <Text style={styles.primaryBtnText}>新建</Text>
         </Pressable>
       </View>
@@ -173,16 +186,16 @@ function ListBody({
               handleDrop(null)
             },
             style: {
-              padding: '4px 10px 8px',
+              padding: '6px 14px 10px',
               fontSize: 11,
               color: colors.muted,
-              borderBottom: '1px solid rgba(29,43,48,0.08)',
+              borderBottom: '1px solid rgba(0,0,0,0.06)',
             },
           },
-          '拖到此处可变为顶级 · 拖到选项卡上可成为其子选项卡',
+          '拖到此处变为顶级 · 拖到条目上成为子笔记',
         )
       ) : (
-        <Text style={styles.dragHint}>长按暂不支持拖动，可用「子」新建子选项卡</Text>
+        <Text style={styles.dragHint}>点「子」可新建子笔记</Text>
       )}
 
       <ScrollView contentContainerStyle={styles.listContent}>
@@ -316,90 +329,99 @@ export function NoteList(props: Props) {
 
 const styles = StyleSheet.create({
   desktopPane: {
-    width: 300,
+    width: 280,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: colors.line,
     backgroundColor: colors.surface,
   },
   collapsedPane: {
-    width: 44,
+    width: 48,
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: colors.line,
     backgroundColor: colors.surface,
     alignItems: 'center',
-    paddingTop: 14,
-    gap: 10,
+    paddingTop: space.lg,
+    gap: space.sm,
   },
   expandBtn: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(46, 139, 128, 0.14)',
+    backgroundColor: colors.surfaceHover,
   },
   expandBtnText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.tealDark,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.ink,
   },
   collapsedCreate: {
     width: 32,
     height: 32,
-    borderRadius: 8,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.teal,
+    backgroundColor: colors.accent,
   },
   collapsedCreateText: {
     color: colors.white,
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '600',
     lineHeight: 22,
   },
   collapseBtn: {
     width: 28,
     height: 28,
-    borderRadius: 7,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(29, 43, 48, 0.08)',
   },
   collapseBtnText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.ink,
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.muted,
   },
+  closeMobileBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+  },
+  closeMobileText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  pressed: { backgroundColor: colors.surfaceHover },
   drawer: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    width: '86%',
-    maxWidth: 320,
-    backgroundColor: colors.paper,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
+    width: '88%',
+    maxWidth: 360,
+    backgroundColor: colors.surface,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    borderRightColor: colors.line,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(22, 34, 40, 0.28)',
+    backgroundColor: 'rgba(0, 0, 0, 0.32)',
   },
-  sidebar: { flex: 1 },
+  sidebar: { flex: 1, backgroundColor: colors.surface },
   brandRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingTop: 18,
-    paddingBottom: 8,
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    paddingBottom: space.sm,
   },
   brand: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '600',
     color: colors.ink,
+    letterSpacing: -0.3,
   },
   brandSub: {
     marginTop: 2,
@@ -407,53 +429,53 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   primaryBtn: {
-    backgroundColor: colors.teal,
+    backgroundColor: colors.accent,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: radius.md,
   },
+  primaryBtnPressed: { backgroundColor: colors.accentPressed },
   primaryBtnText: {
     color: colors.white,
-    fontWeight: '700',
+    fontWeight: '600',
     fontSize: 13,
   },
   dragHint: {
-    paddingHorizontal: 14,
-    paddingBottom: 8,
+    paddingHorizontal: space.lg,
+    paddingBottom: space.sm,
     fontSize: 11,
-    color: colors.muted,
+    color: colors.faint,
   },
-  listContent: { paddingHorizontal: 8, paddingBottom: 24 },
+  listContent: { paddingHorizontal: space.sm, paddingBottom: 32 },
   empty: {
-    padding: 14,
+    padding: space.lg,
     color: colors.muted,
     fontSize: 14,
+    lineHeight: 20,
   },
   itemWrap: {
     position: 'relative',
-    marginBottom: 4,
-    borderRadius: 10,
+    marginBottom: 2,
+    borderRadius: radius.md,
   },
   itemDropTarget: {
-    borderWidth: 2,
-    borderColor: colors.teal,
-    backgroundColor: 'rgba(46, 139, 128, 0.12)',
+    backgroundColor: colors.accentSoft,
   },
   item: {
-    paddingVertical: 10,
-    paddingLeft: 10,
-    paddingRight: 64,
-    borderRadius: 10,
+    paddingVertical: 11,
+    paddingLeft: 12,
+    paddingRight: 72,
+    borderRadius: radius.md,
   },
   itemActive: {
-    backgroundColor: 'rgba(46, 139, 128, 0.14)',
+    backgroundColor: colors.surfaceHover,
   },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  nestMark: { color: colors.muted, fontSize: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  nestMark: { color: colors.faint, fontSize: 12 },
   itemTitle: {
     flexShrink: 1,
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     color: colors.ink,
   },
   dirty: {
@@ -464,29 +486,31 @@ const styles = StyleSheet.create({
   },
   itemMeta: {
     marginTop: 3,
-    fontSize: 12,
-    color: colors.muted,
+    fontSize: 11,
+    color: colors.faint,
   },
   actions: {
     position: 'absolute',
-    right: 2,
+    right: 4,
     top: 8,
     flexDirection: 'row',
     alignItems: 'center',
   },
   iconBtn: {
-    width: 28,
-    height: 28,
+    minWidth: 32,
+    height: 32,
+    paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: radius.sm,
   },
   iconBtnText: {
     fontSize: 12,
-    fontWeight: '700',
-    color: colors.tealDark,
+    fontWeight: '600',
+    color: colors.accent,
   },
   deleteText: {
-    fontSize: 20,
-    color: colors.muted,
+    fontSize: 18,
+    color: colors.faint,
   },
 })
